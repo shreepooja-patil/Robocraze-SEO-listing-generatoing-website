@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { generateProductListing } from '../services/geminiService';
 import { ProductListing } from '../types';
-import { Loader2, Wand2, ShoppingCart, Globe, Tag, CheckCircle2, Download, FileText } from 'lucide-react';
+import { Loader2, Wand2, ShoppingCart, Globe, Tag, CheckCircle2, Download, FileText, Copy, Check, FileType } from 'lucide-react';
+import { jsPDF } from "jspdf";
 
 const ListingGenerator: React.FC = () => {
   const [productName, setProductName] = useState('');
   const [referenceUrl, setReferenceUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ProductListing | null>(null);
+  const [copiedSection, setCopiedSection] = useState<string | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
 
   const presets = [
@@ -41,20 +43,22 @@ const ListingGenerator: React.FC = () => {
   const loadPreset = (p: { name: string, url: string }) => {
     setProductName(p.name);
     setReferenceUrl(p.url);
-    // Don't clear result immediately for smoother transition
+  };
+
+  const copyToClipboard = (text: string, sectionId: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedSection(sectionId);
+    setTimeout(() => setCopiedSection(null), 2000);
   };
 
   const handleDownloadCSV = () => {
     if (!result) return;
 
-    const headers = [
-      "Field",
-      "Content"
-    ];
+    const escapeCsv = (str: string) => {
+      if (str == null) return '""';
+      return `"${str.toString().replace(/"/g, '""')}"`;
+    };
 
-    // Prepare rows for a vertical key-value format which is often easier to read for single products
-    // Alternatively, we can do a horizontal format. Let's do horizontal for database readiness.
-    
     const columns = [
       "Product Name Input",
       "Website Title",
@@ -67,12 +71,6 @@ const ListingGenerator: React.FC = () => {
       "Meta Description",
       "Suggested Tags"
     ];
-
-    const escapeCsv = (str: string) => {
-      if (str == null) return '""';
-      // Escape double quotes and wrap in double quotes
-      return `"${str.toString().replace(/"/g, '""')}"`;
-    };
 
     const row = [
       productName,
@@ -100,6 +98,126 @@ const ListingGenerator: React.FC = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleDownloadPDF = () => {
+    if (!result) return;
+    
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 15;
+    const maxLineWidth = pageWidth - margin * 2;
+    let yPos = 20;
+
+    const addHeading = (text: string) => {
+        if (yPos > 270) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 58, 138); // Blue-900
+        doc.text(text, margin, yPos);
+        yPos += 8;
+    };
+
+    const addBody = (text: string) => {
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(60, 60, 60);
+        const lines = doc.splitTextToSize(text, maxLineWidth);
+        
+        if (yPos + lines.length * 5 > 280) {
+            doc.addPage();
+            yPos = 20;
+        }
+        
+        doc.text(lines, margin, yPos);
+        yPos += lines.length * 5 + 5;
+    };
+
+    // Header
+    doc.setFontSize(18);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(37, 99, 235); // Blue-600
+    doc.text("Product Listing Analysis", margin, yPos);
+    yPos += 10;
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated for: ${productName}`, margin, yPos);
+    yPos += 15;
+
+    // Content
+    addHeading("Website Title");
+    addBody(result.productTitleWebsite);
+
+    addHeading("Amazon Title");
+    addBody(result.productTitleAmazon);
+
+    addHeading("Bullet Points");
+    result.bulletPoints.forEach(bp => {
+        const text = `• ${bp}`;
+        const lines = doc.splitTextToSize(text, maxLineWidth);
+        if (yPos + lines.length * 5 > 280) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(60, 60, 60);
+        doc.text(lines, margin, yPos);
+        yPos += lines.length * 5 + 2;
+    });
+    yPos += 5;
+
+    addHeading("SEO Description");
+    addBody(result.seoDescription);
+
+    addHeading("Technical Specifications");
+    result.technicalSpecifications.forEach(spec => {
+        const text = `${spec.name}: ${spec.value}`;
+        const lines = doc.splitTextToSize(text, maxLineWidth);
+        if (yPos + lines.length * 5 > 280) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(10);
+        doc.setFont("courier", "normal");
+        doc.setTextColor(30, 30, 30);
+        doc.text(lines, margin, yPos);
+        yPos += lines.length * 5 + 1;
+    });
+    yPos += 5;
+
+    addHeading("Meta Data & Keywords");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Meta Title:", margin, yPos);
+    yPos += 5;
+    addBody(result.metaTitle);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Meta Description:", margin, yPos);
+    yPos += 5;
+    addBody(result.metaDescription);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Keywords:", margin, yPos);
+    yPos += 5;
+    addBody(result.searchKeywords.join(", "));
+
+    doc.save(`${productName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_listing.pdf`);
+  };
+
+  // Helper to highlight keywords in the description
+  const highlightKeywords = (text: string, keywords: string[]) => {
+    if (!keywords || keywords.length === 0) return text;
+    
+    const parts = text.split(new RegExp(`(${keywords.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi'));
+    return (
+      <span>
+        {parts.map((part, i) => {
+            const isKeyword = keywords.some(k => k.toLowerCase() === part.toLowerCase());
+            return isKeyword ? (
+                <mark key={i} className="bg-yellow-200 text-slate-800 rounded-sm px-0.5 font-medium">{part}</mark>
+            ) : (
+                <span key={i}>{part}</span>
+            )
+        })}
+      </span>
+    );
   };
 
   return (
@@ -137,7 +255,7 @@ const ListingGenerator: React.FC = () => {
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
                   className="w-full p-3.5 bg-white text-slate-900 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-600 outline-none placeholder:text-slate-400 transition-all shadow-sm hover:border-blue-200"
-                  placeholder="e.g., Ai-WB2-32S NodeMCU Kit"
+                  placeholder="e.g., Ai-WB2-32S NodeMCU Kit (Any Website Link works too)"
                 />
               </div>
               
@@ -181,35 +299,65 @@ const ListingGenerator: React.FC = () => {
       {result && (
         <div className="space-y-6" ref={resultRef}>
           {/* Action Bar */}
-          <div className="flex justify-end items-center animate-fade-in">
-             <button 
-                onClick={handleDownloadCSV}
-                className="flex items-center gap-2 bg-green-600 text-white px-5 py-2.5 rounded-lg font-medium shadow-md hover:bg-green-700 hover:shadow-lg transition-all active:scale-95"
-             >
-                <FileText className="w-4 h-4" /> 
-                Download CSV
-             </button>
+          <div className="flex justify-between items-center animate-fade-in bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+             <div className="text-sm font-medium text-slate-600 pl-2">
+                Content ready for review
+             </div>
+             <div className="flex gap-2">
+                 <button 
+                    onClick={handleDownloadCSV}
+                    className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md hover:bg-green-700 hover:shadow-lg transition-all active:scale-95"
+                    title="Download Spreadsheet"
+                 >
+                    <FileText className="w-4 h-4" /> 
+                    Export CSV
+                 </button>
+                 <button 
+                    onClick={handleDownloadPDF}
+                    className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md hover:bg-red-700 hover:shadow-lg transition-all active:scale-95"
+                    title="Download PDF Report"
+                 >
+                    <FileType className="w-4 h-4" /> 
+                    Export PDF
+                 </button>
+             </div>
           </div>
 
           {/* Titles Section */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-pop-in stagger-1 hover:shadow-md transition-shadow">
-            <div className="bg-slate-50/50 p-4 border-b border-slate-100 flex items-center gap-2">
-                <Globe className="w-4 h-4 text-blue-600" />
-                <h3 className="font-bold text-slate-700">Optimized Titles</h3>
+            <div className="bg-slate-50/50 p-4 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    <h3 className="font-bold text-slate-700">Optimized Titles</h3>
+                </div>
             </div>
             <div className="p-6 grid gap-6 md:grid-cols-2">
-              <div className="group">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2 block flex items-center gap-1">
-                   Website Format
-                </span>
-                <div className="p-4 bg-white rounded-xl text-slate-800 border-2 border-slate-100 group-hover:border-blue-100 group-hover:shadow-sm transition-all">
+              <div className="group relative">
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-blue-600 uppercase tracking-wider flex items-center gap-1">Website Format</span>
+                    <button 
+                        onClick={() => copyToClipboard(result.productTitleWebsite, 'web-title')}
+                        className="text-slate-400 hover:text-blue-600 transition-colors"
+                        title="Copy to clipboard"
+                    >
+                        {copiedSection === 'web-title' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                </div>
+                <div className="p-4 bg-white rounded-xl text-slate-800 border-2 border-slate-100 group-hover:border-blue-100 group-hover:shadow-sm transition-all relative">
                     {result.productTitleWebsite}
                 </div>
               </div>
-              <div className="group">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block flex items-center gap-1">
-                   Amazon Format
-                </span>
+              <div className="group relative">
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">Amazon Format</span>
+                    <button 
+                        onClick={() => copyToClipboard(result.productTitleAmazon, 'amz-title')}
+                        className="text-slate-400 hover:text-blue-600 transition-colors"
+                        title="Copy to clipboard"
+                    >
+                        {copiedSection === 'amz-title' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                </div>
                 <div className="p-4 bg-white rounded-xl text-slate-800 border-2 border-slate-100 group-hover:border-slate-300 group-hover:shadow-sm transition-all">
                     {result.productTitleAmazon}
                 </div>
@@ -225,7 +373,15 @@ const ListingGenerator: React.FC = () => {
             </div>
             <div className="p-6 space-y-6">
               <div>
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-3">Key Features (Bullet Points)</span>
+                <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Key Features (Bullet Points)</span>
+                    <button 
+                        onClick={() => copyToClipboard(result.bulletPoints.join('\n'), 'bullets')}
+                        className="text-slate-400 hover:text-blue-600 transition-colors flex items-center gap-1 text-xs font-medium"
+                    >
+                        {copiedSection === 'bullets' ? <><Check className="w-3 h-3 text-green-500" /> Copied</> : <><Copy className="w-3 h-3" /> Copy All</>}
+                    </button>
+                </div>
                 <ul className="space-y-3">
                   {result.bulletPoints.map((bp, i) => (
                     <li key={i} className="flex items-start gap-3 text-slate-700 text-sm group">
@@ -235,17 +391,37 @@ const ListingGenerator: React.FC = () => {
                   ))}
                 </ul>
               </div>
-              <div className="p-5 bg-blue-50/30 rounded-xl border border-blue-100/50">
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-wider block mb-2">SEO Description</span>
-                <p className="text-sm text-slate-700 leading-7">{result.seoDescription}</p>
+              <div className="p-5 bg-blue-50/30 rounded-xl border border-blue-100/50 relative group">
+                <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">SEO Description (Highlighter Enabled)</span>
+                    <button 
+                        onClick={() => copyToClipboard(result.seoDescription, 'desc')}
+                        className="text-slate-400 hover:text-blue-600 transition-colors bg-white p-1.5 rounded-md border border-slate-100 shadow-sm"
+                        title="Copy Description"
+                    >
+                        {copiedSection === 'desc' ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                </div>
+                <p className="text-sm text-slate-700 leading-7">
+                    {highlightKeywords(result.seoDescription, result.searchKeywords)}
+                </p>
+                <div className="mt-2 text-[10px] text-slate-400 text-right">
+                    *Yellow highlights indicate targeted keywords
+                </div>
               </div>
             </div>
           </div>
 
            {/* Specs */}
            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-pop-in stagger-3 hover:shadow-md transition-shadow">
-             <div className="bg-slate-50/50 p-4 border-b border-slate-100">
+             <div className="bg-slate-50/50 p-4 border-b border-slate-100 flex justify-between items-center">
                 <h3 className="font-bold text-slate-700">Technical Specifications</h3>
+                <button 
+                    onClick={() => copyToClipboard(result.technicalSpecifications.map(s => `${s.name}: ${s.value}`).join('\n'), 'specs')}
+                    className="text-slate-400 hover:text-blue-600 transition-colors text-xs font-medium flex items-center gap-1"
+                >
+                    {copiedSection === 'specs' ? <><Check className="w-3 h-3 text-green-500" /> Copied</> : <><Copy className="w-3 h-3" /> Copy Table</>}
+                </button>
              </div>
              <div className="p-0">
               <table className="w-full text-sm text-left text-slate-600">
@@ -276,13 +452,19 @@ const ListingGenerator: React.FC = () => {
              <div className="p-6 space-y-6">
                <div className="grid md:grid-cols-2 gap-6">
                  <div className="space-y-1">
-                    <span className="text-xs font-bold text-slate-400 uppercase">Meta Title</span>
-                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-blue-600 font-medium truncate hover:text-blue-700 cursor-pointer">
+                    <div className="flex justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase">Meta Title</span>
+                        <button onClick={() => copyToClipboard(result.metaTitle, 'meta-t')} className="text-slate-400 hover:text-blue-600"><Copy className="w-3 h-3" /></button>
+                    </div>
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-blue-600 font-medium truncate hover:text-blue-700">
                         {result.metaTitle}
                     </div>
                  </div>
                  <div className="space-y-1">
-                    <span className="text-xs font-bold text-slate-400 uppercase">Meta Description</span>
+                    <div className="flex justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase">Meta Description</span>
+                        <button onClick={() => copyToClipboard(result.metaDescription, 'meta-d')} className="text-slate-400 hover:text-blue-600"><Copy className="w-3 h-3" /></button>
+                    </div>
                     <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600 line-clamp-2">
                         {result.metaDescription}
                     </div>
@@ -290,9 +472,17 @@ const ListingGenerator: React.FC = () => {
               </div>
               
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-400 uppercase">Target Keywords</span>
-                    <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Top 15</span>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-400 uppercase">Target Keywords</span>
+                        <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Top 15</span>
+                    </div>
+                    <button 
+                        onClick={() => copyToClipboard(result.searchKeywords.join(', '), 'keywords')}
+                        className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                        {copiedSection === 'keywords' ? "Copied" : "Copy List"}
+                    </button>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {result.searchKeywords.map(k => (

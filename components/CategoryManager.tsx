@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { assignCategories } from '../services/geminiService';
 import { CategoryMapping } from '../types';
-import { Loader2, Layers, ArrowRight, CornerDownRight, Box } from 'lucide-react';
+import { Loader2, Layers, ArrowRight, CornerDownRight, Box, Copy, Check } from 'lucide-react';
 
 const CategoryManager: React.FC = () => {
   const defaultItems = [
@@ -14,6 +14,7 @@ const CategoryManager: React.FC = () => {
   const [items, setItems] = useState<string>(defaultItems.join('\n'));
   const [results, setResults] = useState<CategoryMapping[]>([]);
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleCategorize = async () => {
     setLoading(true);
@@ -28,6 +29,13 @@ const CategoryManager: React.FC = () => {
         setLoading(false);
     }
   };
+
+  const copyResults = () => {
+    const text = results.map(r => `${r.productName} -> ${r.assignedCategory}`).join('\n');
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -73,6 +81,18 @@ const CategoryManager: React.FC = () => {
 
         {/* Output Section */}
         <div className="md:col-span-7 space-y-4">
+            {results.length > 0 && (
+                <div className="flex justify-end mb-2">
+                    <button 
+                        onClick={copyResults}
+                        className="text-xs font-semibold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg flex items-center gap-2 transition-colors border border-transparent hover:border-blue-100"
+                    >
+                        {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        {copied ? 'Copied to Clipboard' : 'Copy All Results'}
+                    </button>
+                </div>
+            )}
+
             {results.length === 0 && !loading && (
                 <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-slate-300 border-2 border-dashed border-slate-200 rounded-2xl p-8 bg-slate-50/50">
                     <Box className="w-16 h-16 mb-4 opacity-50" />

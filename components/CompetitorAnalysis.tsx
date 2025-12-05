@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { findCompetitors } from '../services/geminiService';
 import { CompetitorAnalysis } from '../types';
-import { Loader2, ExternalLink, Search, TrendingUp, AlertCircle, IndianRupee } from 'lucide-react';
+import { Loader2, ExternalLink, Search, TrendingUp, AlertCircle, IndianRupee, Copy, Check } from 'lucide-react';
 
 const CompetitorAnalysisComp: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<CompetitorAnalysis[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const presets = ["Ai-WB2-32S NodeMCU", "XR2206 Signal Generator DIY Kit"];
 
@@ -24,6 +25,13 @@ const CompetitorAnalysisComp: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const copyAnalysis = (comp: CompetitorAnalysis, idx: number) => {
+    const text = `Competitor: ${comp.competitorName}\nPrice: ${comp.price || 'N/A'}\nURL: ${comp.productUrl}\nAnalysis: ${comp.eyeCatchingDetails}`;
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(idx);
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
 
   return (
@@ -122,16 +130,24 @@ const CompetitorAnalysisComp: React.FC = () => {
                   Visit Product Page <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
-              {comp.price ? (
-                <span className="bg-green-100 text-green-700 text-sm font-bold px-3 py-1.5 rounded-lg flex items-center shadow-sm">
-                  {comp.price.includes('₹') ? '' : <IndianRupee className="w-3 h-3 mr-0.5" />}
-                  {comp.price}
-                </span>
-              ) : (
-                <span className="bg-slate-100 text-slate-500 text-xs font-bold px-3 py-1.5 rounded-lg">
-                  Price N/A
-                </span>
-              )}
+              <div className="flex flex-col items-end gap-2">
+                  {comp.price ? (
+                    <span className="bg-green-100 text-green-700 text-sm font-bold px-3 py-1.5 rounded-lg flex items-center shadow-sm">
+                      {comp.price.includes('₹') ? '' : <IndianRupee className="w-3 h-3 mr-0.5" />}
+                      {comp.price}
+                    </span>
+                  ) : (
+                    <span className="bg-slate-100 text-slate-500 text-xs font-bold px-3 py-1.5 rounded-lg">
+                      Price N/A
+                    </span>
+                  )}
+                  <button 
+                    onClick={() => copyAnalysis(comp, idx)}
+                    className="text-slate-400 hover:text-blue-600 transition-colors flex items-center gap-1 text-[10px] uppercase font-bold"
+                  >
+                    {copiedIndex === idx ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy Analysis</>}
+                  </button>
+              </div>
             </div>
             
             <div className="p-6">
