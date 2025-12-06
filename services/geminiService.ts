@@ -1,7 +1,20 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { ProductListing, CompetitorAnalysis, CategoryMapping } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Support both local development (process.env) and Vite production build (import.meta.env)
+const getApiKey = () => {
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+    return process.env.API_KEY;
+  }
+  // @ts-ignore - Vite specific env handling
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+    // @ts-ignore
+    return import.meta.env.VITE_API_KEY;
+  }
+  return '';
+};
+
+const ai = new GoogleGenAI({ apiKey: getApiKey() });
 
 const categorySchema: Schema = {
   type: Type.ARRAY,
